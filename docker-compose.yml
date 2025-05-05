@@ -1,0 +1,159 @@
+version: '3.8'
+
+services:
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcp-media-server:latest
+    container_name: mcp-media-server
+    restart: always
+    # No need to expose port 9000 to the host when using Caddy
+    # Caddy will route traffic internally
+    expose:
+      - "9000"
+    volumes:
+      - mcp_downloads:/app/downloads
+      - mcp_processed:/app/processed
+      - mcp_thumbnails:/app/thumbnails
+      - mcp_cache:/app/cache
+      - mcp_logs:/app/logs
+      - mcp_keys:/app/keys
+      - mcp_backups:/app/backups
+    env_file:
+      - .env
+    command: ["--transport", "sse", "--api"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+    networks:
+      - mcp-network
+
+  # Caddy reverse proxy with automatic HTTPS
+  caddy:
+    image: caddy:2.6.4
+    container_name: caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # For HTTP/3 support
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./logs/caddy:/logs/caddy
+    environment:
+      - DOMAIN=mcp.aitoolpool.com
+    depends_on:
+      - mcp-server
+      - grafana
+    networks:
+      - mcp-network
+
+  # Health monitoring service
+  health-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitor
+    image: mcp-health-monitor:latest
+    container_name: mcp-health-monitor
+    restart: always
+    volumes:
+      - mcp_logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - mcp-server
+    environment:
+      - MONITOR_HOST=mcp-server
+      - MONITOR_PORT=9000
+      - MONITOR_INTERVAL=60
+      - MONITOR_THRESHOLD=3
+      - MONITOR_ACTION=restart
+    networks:
+      - mcp-network
+
+  # Watchtower automatically updates containers to the latest available image
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 86400 --cleanup mcp-server caddy health-monitor prometheus grafana
+    restart: always
+    networks:
+      - mcp-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: always
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    # Expose to internal network only, access via Caddy
+    expose:
+      - "9090"
+    networks:
+      - mcp-network
+
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=https://mcp.aitoolpool.com/grafana
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    depends_on:
+      - prometheus
+    # Expose to internal network only, access via Caddy
+    expose:
+      - "3000"
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge
+
+volumes:
+  mcp_downloads:
+  mcp_processed:
+  mcp_thumbnails:
+  mcp_cache:
+  mcp_logs:
+  mcp_keys:
+  mcp_backups:
+  prometheus_data:
+  grafana_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,25 @@
+{
+  "mcp_server": {
+    "api_url": "http://localhost:9000",
+    "api_key": "YOUR_GENERATED_API_KEY",
+    "webhooks": {
+      "enabled": true,
+      "endpoint": "http://localhost:8000/webhook/complete"
+    }
+  },
+  "media_paths": {
+    "downloads": "/app/downloads",
+    "processed": "/app/processed",
+    "thumbnails": "/app/thumbnails"
+  },
+  "ide_integration": {
+    "roo_code": {
+      "enabled": true,
+      "workspace_path": "/path/to/roo/workspace"
+    },
+    "windsurf_ide": {
+      "enabled": true,
+      "workspace_path": "/path/to/windsurf/workspace"
+    }
+  }
+}

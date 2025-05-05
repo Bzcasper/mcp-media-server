@@ -1,0 +1,83 @@
+mcp.aitoolpool.com {
+    # Main application - Reverse proxy to MCP Media Server
+    reverse_proxy /api/* mcp-server:9000 {
+        # Health checks
+        health_uri /health
+        health_interval 30s
+        health_timeout 10s
+        health_status 200
+
+        # Headers
+        header_up Host { http.request.host }
+        header_up X-Real-IP { http.request.remote }
+        header_up X-Forwarded-For { http.request.remote }
+        header_up X-Forwarded-Proto { http.request.scheme }
+    }
+
+    # Default route to MCP server
+    reverse_proxy mcp-server:9000 {
+        # Headers
+        header_up Host { http.request.host }
+        header_up X-Real-IP { http.request.remote }
+        header_up X-Forwarded-For { http.request.remote }
+        header_up X-Forwarded-Proto { http.request.scheme }
+    }
+
+    # Grafana dashboard at /grafana path
+    handle_path /grafana* {
+        reverse_proxy grafana:3000 {
+            # Headers
+            header_up Host { http.request.host }
+            header_up X-Real-IP { http.request.remote }
+            header_up X-Forwarded-For { http.request.remote }
+            header_up X-Forwarded-Proto { http.request.scheme }
+            header_up X-Forwarded-Prefix /grafana
+        }
+    }
+
+    # Prometheus at /prometheus path
+    handle_path /prometheus* {
+        reverse_proxy prometheus:9090 {
+            # Headers
+            header_up Host { http.request.host }
+            header_up X-Real-IP { http.request.remote }
+            header_up X-Forwarded-For { http.request.remote }
+            header_up X-Forwarded-Proto { http.request.scheme }
+        }
+    }
+
+    # Security headers
+    header {
+        # Remove server header
+        -Server
+
+        # Security headers
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; font-src 'self'; object-src 'none'; media-src 'self'; frame-src 'self'; worker-src 'self'; form-action 'self'; base-uri 'self'; frame-ancestors 'self'"
+
+        # Enable compression
+        defer
+    }
+
+    # Enable logs
+    log {
+        output file /logs/caddy/access.log {
+            roll_size 10mb
+            roll_keep 10
+        }
+        format json
+    }
+
+    # Enable errors logs
+    handle_errors {
+        respond "Server error: {http.error.status_code}"
+    }
+
+    # TLS configuration (Caddy automatically manages SSL certificates)
+    tls {
+        protocols tls1.2 tls1.3
+    }
+}
