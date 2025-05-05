@@ -1,0 +1,39 @@
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1
+
+# Create non-root user
+RUN groupadd -r mcp && useradd --no-log-init -r -g mcp mcp
+
+# Create necessary directories
+RUN mkdir -p /app/logs/caddy \
+    && chown -R mcp:mcp /app
+
+# Copy monitoring script
+COPY monitor_health.py /app/
+COPY requirements-monitor.txt /app/
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements-monitor.txt
+
+# Set the script as executable
+RUN chmod +x /app/monitor_health.py
+
+# Switch to non-root user
+USER mcp
+
+# Start the monitoring script
+CMD ["python", "monitor_health.py", "--host", "mcp-server", "--port", "9000"]
